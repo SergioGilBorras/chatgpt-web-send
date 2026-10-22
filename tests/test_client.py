@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from chatgpt_web_send import ChatGPTWeb, ChatGPTWebError, SubmissionError
+from chatgpt_web_send.client import _COMPOSER, _COMPOSER_CLEARED_SCRIPT
 
 
 def browser_client():
@@ -61,3 +62,29 @@ def test_refuses_redirect_to_wrong_conversation():
 def test_context_manager_required():
     with pytest.raises(ChatGPTWebError, match="with ChatGPTWeb"):
         ChatGPTWeb().open_login()
+
+
+def test_supports_textareas_without_matching_hidden_inputs():
+    assert "textarea#prompt-textarea:visible" in _COMPOSER
+    assert 'textarea[name="prompt-textarea"]:visible' in _COMPOSER
+    assert "textarea#mobile-composer-prompt:visible" in _COMPOSER
+    assert "editor.value" in _COMPOSER_CLEARED_SCRIPT
+    assert "getClientRects" in _COMPOSER_CLEARED_SCRIPT
+
+
+def test_composer_is_waited_for_and_timeout_is_actionable():
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    client, page, composer, _ = browser_client()
+    composer.wait_for.side_effect = PlaywrightTimeoutError("not found")
+    with pytest.raises(SubmissionError, match="--timeout 90 --keep-open"):
+        client.send("abc-123", "Hola", wait=False)
+    composer.wait_for.assert_called_once_with(state="visible", timeout=1000)
+
+
+def test_uses_send_button_even_when_initially_disabled():
+    client, page, composer, button = browser_client()
+    button.is_enabled.return_value = False
+    client.send("abc-123", "Hola", wait=False)
+    button.click.assert_called_once()
+    composer.press.assert_not_called()

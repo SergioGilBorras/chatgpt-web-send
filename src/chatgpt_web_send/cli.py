@@ -18,7 +18,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--profile-dir", type=Path, help="Persistent browser profile directory")
-    common.add_argument("--timeout", type=float, default=30.0, help="UI timeout in seconds (default: 30)")
+    common.add_argument("--timeout", type=float, default=60.0, help="UI timeout in seconds (default: 60)")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("login", parents=[common], help="Sign in interactively (once)")
     send = subcommands.add_parser("send", parents=[common], help="Send to an existing conversation")
@@ -55,12 +55,23 @@ def main(argv: list[str] | None = None) -> int:
                     prompt = args.prompt_file.read_text(encoding="utf-8")
                 else:
                     prompt = sys.stdin.read()
-                result = client.send(
-                    conversation_id=args.conversation_id,
-                    prompt=prompt,
-                    wait=not args.no_wait,
-                    completion_timeout=args.completion_timeout,
-                )
+                try:
+                    result = client.send(
+                        conversation_id=args.conversation_id,
+                        prompt=prompt,
+                        wait=not args.no_wait,
+                        completion_timeout=args.completion_timeout,
+                    )
+                except (ChatGPTWebError, PlaywrightError, OSError, ValueError) as exc:
+                    if args.keep_open:
+                        print(f"Error: {exc}", file=sys.stderr)
+                        print("Browser left open for inspection. Press Enter to close it.")
+                        try:
+                            input()
+                        except EOFError:
+                            pass
+                        return 1
+                    raise
                 print(f"Prompt submitted to {result.url}")
                 if result.completed is True:
                     print("Generation finished (based on UI controls; response not read).")

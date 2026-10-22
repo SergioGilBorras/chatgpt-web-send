@@ -53,10 +53,10 @@ Opciones:
 | Opción | Descripción |
 | --- | --- |
 | --profile-dir RUTA | Directorio de sesión persistente (login y send) |
-| --timeout SEGUNDOS | Espera del editor; 30 s de forma predeterminada |
+| --timeout SEGUNDOS | Espera del editor; 60 s de forma predeterminada |
 | --completion-timeout SEGUNDOS | Espera de los controles de generación; 300 s |
 | --no-wait | Termina después de confirmar que se vació el editor |
-| --keep-open | Conserva la ventana hasta pulsar Enter |
+| --keep-open | Conserva la ventana hasta pulsar Enter, incluso si falla el envío |
 | --headless | Navegador sin ventana; requiere sesión ya iniciada |
 
 El comando **send** abre la conversación solicitada, escribe el prompt y pulsa el botón de envío (o Enter si no aparece). Comprueba únicamente que se vacíe el editor. Por defecto observa también el **botón de detener generación**, si está disponible, para detectar cuándo desaparece. **Nunca recupera el texto generado.**
@@ -106,3 +106,18 @@ Las pruebas unitarias simulan Playwright; no abren ChatGPT ni necesitan credenci
 ## Licencia
 
 MIT. Consulta [LICENSE](LICENSE).
+
+
+## Solución de problemas: no se encuentra el editor
+
+Si `send` devuelve *composer not visible*, Playwright ha agotado el tiempo esperando a que aparezca el editor **visible**. Puede deberse a carga lenta, sesión caducada, conversación no accesible, ventana de consentimiento o cambios de interfaz. El paquete admite tanto editores `contenteditable` como `textarea`, omitiendo los campos ocultos.
+
+Desde PowerShell:
+
+~~~powershell
+chatgpt-web-send send --conversation-id "TU_ID" --prompt "Hola desde Python" --timeout 90 --keep-open
+~~~
+
+Con `--keep-open` se conserva la ventana **también en caso de error**, hasta pulsar Enter. Puedes comprobar manualmente la URL final y posibles avisos, sin que el programa lea la conversación. Si hace falta, repite `chatgpt-web-send login`.
+
+La espera se aplica a la aparición del editor, no a la lectura de mensajes. Si el mensaje pudiera haberse enviado y la confirmación falla, la herramienta **no reintenta automáticamente** para evitar duplicados.

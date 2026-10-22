@@ -23,23 +23,46 @@ from playwright.sync_api import (
 
 BASE_URL = "https://chatgpt.com"
 _CONVERSATION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
-_COMPOSER = (
-    '#prompt-textarea[contenteditable="true"], '
-    '[data-testid="prompt-textarea"][contenteditable="true"], '
-    '[data-testid="composer-input"][contenteditable="true"]'
+# Restrict fallbacks to the conversation composer: never match editable past messages.
+# Some ChatGPT deployments use a textarea, others a ProseMirror/Lexical editor.
+_COMPOSER_SELECTORS = (
+    '#prompt-textarea[contenteditable="true"]',
+    'textarea#prompt-textarea',
+    '[data-testid="prompt-textarea"][contenteditable="true"]',
+    'textarea[data-testid="prompt-textarea"]',
+    '[data-testid="composer-input"][contenteditable="true"]',
+    'textarea[data-testid="composer-input"]',
+    'textarea[name="prompt-textarea"]',
+    'textarea#mobile-composer-prompt',
+    'form[data-chatgpt-composer] [contenteditable="true"][role="textbox"]',
+    'form [contenteditable="true"][class*="ProseMirror"]',
+    'form [contenteditable="true"][data-lexical-editor="true"]',
 )
+# :visible is Playwright-specific. It avoids selecting hidden fallback textareas.
+_COMPOSER = ", ".join(f"{selector}:visible" for selector in _COMPOSER_SELECTORS)
+_COMPOSER_DOM = ", ".join(_COMPOSER_SELECTORS)
 _SEND_BUTTON = (
-    'button[data-testid="send-button"], '
-    'button[data-testid="composer-send-button"]'
+    'button[data-testid="send-button"]:visible, '
+    'button[data-testid="composer-send-button"]:visible, '
+    'button#composer-submit-button:visible, '
+    'button[aria-label="Send prompt"]:visible, '
+    'button[aria-label="Send message"]:visible, '
+    'form[data-chatgpt-composer] button[type="submit"]:visible'
 )
 _STOP_BUTTON = (
     'button[data-testid="stop-button"], '
     'button[data-testid="stop-response-button"]'
 )
-# This checks only the contents of the input editor, not any conversation messages.
+# Inspects ONLY the active composer (never the history, answers or page text).
+# Textareas store their current prompt in \`value\`, not \`textContent\`.
 _COMPOSER_CLEARED_SCRIPT = f"""() => {{
-  const input = document.querySelector({_COMPOSER!r});
-  return Boolean(input) && !(input.textContent || '').trim();
+  const editor = Array.from(document.querySelectorAll({_COMPOSER_DOM!r}))
+    .find(el => el.getClientRects().length > 0 &&
+      getComputedStyle(el).visibility !== 'hidden');
+  if (!editor) return false;
+  const current = (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement)
+    ? editor.value : editor.textContent;
+  return !(current || '').trim();
 }}"""
 
 
@@ -88,7 +111,7 @@ class ChatGPTWeb:
         profile_dir: str | Path | None = None,
         *,
         headless: bool = False,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
@@ -174,7 +197,11 @@ class ChatGPTWeb:
         except PlaywrightTimeoutError as exc:
             if "/auth/" in urlsplit(page.url).path or "/login" in urlsplit(page.url).path:
                 raise AuthenticationRequiredError("Sign in first with: chatgpt-web-send login") from exc
-            raise SubmissionError("ChatGPT composer not found. Sign in or check the UI.") from exc
+            raise SubmissionError(
+                f"ChatGPT composer not visible after {self.timeout:g}s at {page.url}. "
+                "Verify your session, the conversation URL and any login/consent dialog; "
+                "try --timeout 90 --keep-open to inspect the browser."
+            ) from exc
 
         # A redirect to the home page must never silently send to a new chat.
         parsed = urlsplit(page.url)
@@ -184,7 +211,8 @@ class ChatGPTWeb:
         try:
             composer.fill(prompt)
             send_button = page.locator(_SEND_BUTTON).first
-            if send_button.count() and send_button.is_visible() and send_button.is_enabled():
+            # .click() auto-waits for enablement after filling the editor.
+            if send_button.count() and send_button.is_visible():
                 send_button.click(timeout=self.timeout * 1000)
             else:
                 composer.press("Enter", timeout=self.timeout * 1000)
