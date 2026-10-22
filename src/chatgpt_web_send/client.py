@@ -38,7 +38,7 @@ _STOP_BUTTON = (
 )
 # This checks only the contents of the input editor, not any conversation messages.
 _COMPOSER_CLEARED_SCRIPT = f"""() => {{
-  const input = document.querySelector({ _COMPOSER!r });
+  const input = document.querySelector({_COMPOSER!r});
   return Boolean(input) && !(input.textContent || '').trim();
 }}"""
 
