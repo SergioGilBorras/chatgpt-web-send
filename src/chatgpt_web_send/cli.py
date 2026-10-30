@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+import webbrowser
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
 
-from .client import ChatGPTWeb, ChatGPTWebError
+from .client import BASE_URL, ChatGPTWeb, ChatGPTWebError
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="chatgpt-web-send", description="Send prompts through an authenticated ChatGPT browser tab."
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.1")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.2")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--profile-dir", type=Path, help="Persistent browser profile directory")
+    common.add_argument(
+        "--downloads-dir", type=Path,
+        help="Folder for permanent browser downloads (default: ~/Downloads)",
+    )
     common.add_argument(
         "--browser-channel", choices=("chrome", "msedge"),
         help="Use installed Chrome or Edge; default is Playwright Chromium",
@@ -25,6 +31,15 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--timeout", type=float, default=60.0, help="UI timeout in seconds (default: 60)")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("login", parents=[common], help="Sign in interactively (once)")
+    doctor = subcommands.add_parser(
+        "doctor", parents=[common], help="Show the actual browser, profile and download settings"
+    )
+    doctor.add_argument("--keep-open", action="store_true",
+                        help="Inspect the browser visually until Enter is pressed")
+    normal = subcommands.add_parser(
+        "open", help="Open ChatGPT in your regular system browser (manual mode)"
+    )
+    normal.add_argument("--conversation-id", help="Existing conversation ID (optional)")
     send = subcommands.add_parser("send", parents=[common], help="Send to an existing conversation")
     send.add_argument("--conversation-id", required=True, help="ID from chatgpt.com/c/<id>")
     prompt_source = send.add_mutually_exclusive_group(required=True)
@@ -41,14 +56,37 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "open":
+        identifier = args.conversation_id
+        if identifier is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", identifier):
+            print("Error: invalid conversation ID", file=sys.stderr)
+            return 2
+        url = f"{BASE_URL}/c/{identifier}" if identifier else BASE_URL
+        # Open the user's genuine daily browser/profile, without attaching
+        # Playwright or accessing cookies, history or existing tabs.
+        if not webbrowser.open_new_tab(url):
+            print("Could not open the system browser", file=sys.stderr)
+            return 1
+        print("Opened in your regular browser. Write and send the message manually.")
+        return 0
     if args.command == "send" and args.headless and args.keep_open:
         print("Error: --keep-open requires a visible browser", file=sys.stderr)
         return 2
     try:
         with ChatGPTWeb(profile_dir=args.profile_dir, timeout=args.timeout,
                         headless=getattr(args, "headless", False),
-                        browser_channel=args.browser_channel) as client:
-            if args.command == "login":
+                        browser_channel=args.browser_channel,
+                        downloads_dir=args.downloads_dir) as client:
+            if args.command == "doctor":
+                info = client.browser_info()
+                print(f"Actual browser channel: {info['channel']}")
+                print(f"Browser User-Agent: {info['user_agent']}")
+                print(f"Persistent profile: {info['profile_dir']}")
+                print(f"Saved downloads: {info['downloads_dir']}")
+                if args.keep_open:
+                    print("Browser is open for inspection. Press Enter to close.")
+                    input()
+            elif args.command == "login":
                 client.open_login()
                 print("Sign in to ChatGPT in the browser. Before pressing Enter,")
                 print("confirm the normal chat editor is visible, with no verification challenge.")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatgpt-web-send"
-version = "0.1.1"
+version = "0.1.2"
 description = "Send-only prompts to existing ChatGPT conversations through a signed-in browser"
 readme = "README.md"
 requires-python = ">=3.10"
