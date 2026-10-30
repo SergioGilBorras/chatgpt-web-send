@@ -1,5 +1,7 @@
 # chatgpt-web-send
 
+Versión del paquete: **0.1.1** (selección de Chrome/Edge instalados y diagnóstico de verificación humana).
+
 Paquete Python y CLI para **enviar prompts a conversaciones existentes de ChatGPT** desde un navegador donde el usuario inicia sesión. Se centra en el envío: **no lee el historial, mensajes anteriores ni respuestas**.
 
 > Proyecto no oficial: automatiza la web de ChatGPT con Playwright, no usa la API de OpenAI. Los cambios de la interfaz pueden romper el funcionamiento y la automatización está sujeta a las condiciones de uso aplicables. No evita verificaciones, CAPTCHAs ni controles de acceso.
