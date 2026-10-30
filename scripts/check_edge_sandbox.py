@@ -1,60 +1,57 @@
-"""Windows-only smoke test: Edge starts sandboxed without --no-sandbox.
+"""Windows Edge security smoke: inspect Playwright's actual launch command.
 
-This inspects only the command line of a temporary Edge process launched by
-this test, never navigates to ChatGPT, and never reads cookies or messages.
+Uses Playwright DEBUG=pw:browser logs from an isolated subprocess rather than
+enumerating potentially inaccessible Windows processes. It opens no websites,
+uses no user session, and prints no personal paths or raw browser logs.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
-from chatgpt_web_send import ChatGPTWeb
 
 
 def main() -> int:
     if sys.platform != "win32":
         print("Windows Edge sandbox smoke test requires Windows", file=sys.stderr)
         return 2
-
     with tempfile.TemporaryDirectory(prefix="chatgpt-edge-sandbox-") as tmp:
         root = Path(tmp)
-        # Dedicated temporary profile. Do not use or modify any personal profile.
-        with ChatGPTWeb(
-            profile_dir=root / "profile",
-            downloads_dir=root / "downloads",
-            browser_channel="msedge",
-            headless=True,
-        ) as client:
-            client._page().goto("data:text/html,<title>Sandbox%20smoke</title>")
-            process = subprocess.run(
-                [
-                    "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-                    "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" "
-                    "| ForEach-Object { $_.CommandLine }",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=30,
-            )
-            if process.returncode != 0:
-                print("Unable to inspect Edge process command lines", file=sys.stderr)
-                return 1
-            needle = str(client.profile_dir.resolve()).casefold()
-            commands = [
-                line for line in process.stdout.splitlines()
-                if "--user-data-dir=" in line.casefold() and
-                needle in line.casefold().replace("/", "\\")
-            ]
-            if not commands:
-                print("No Edge process matched the test's temporary profile", file=sys.stderr)
-                return 1
-            if any("--no-sandbox" in command.casefold() for command in commands):
-                print("Edge was started with --no-sandbox: sandbox is not enabled", file=sys.stderr)
-                return 1
-            print("Edge launched with its sandbox enabled; no --no-sandbox found.")
+        env = dict(os.environ, DEBUG="pw:browser")
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "chatgpt_web_send", "doctor",
+                "--browser-channel", "msedge", "--headless",
+                "--profile-dir", str(root / "profile"),
+                "--downloads-dir", str(root / "downloads"),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            check=False,
+            timeout=90,
+        )
+        if result.returncode != 0:
+            print("Sandboxed Edge could not start; check browser and Windows policies", file=sys.stderr)
+            return 1
+        launch_lines = [
+            line for line in result.stderr.splitlines()
+            if "<launching>" in line and "msedge.exe" in line.casefold()
+        ]
+        if not launch_lines:
+            print("Playwright did not expose the Edge launch command in debug logs", file=sys.stderr)
+            return 1
+        if any("--no-sandbox" in line.casefold() for line in launch_lines):
+            print("Security failure: Edge received --no-sandbox", file=sys.stderr)
+            return 1
+        if "Edg/" not in result.stdout:
+            print("The expected Microsoft Edge User-Agent was not detected", file=sys.stderr)
+            return 1
+        print("Sandboxed Microsoft Edge launched: --no-sandbox absent, Edge UA verified.")
     return 0
 
 
