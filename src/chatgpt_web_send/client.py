@@ -199,6 +199,9 @@ class ChatGPTWeb:
             options = {
                 "user_data_dir": str(self.profile_dir),
                 "headless": self.headless,
+                # Playwright otherwise adds --no-sandbox by default. Keep the
+                # normal Chromium/Edge sandbox enabled for all browser channels.
+                "chromium_sandbox": True,
                 # Use native window sizing rather than a fixed emulated viewport.
                 "no_viewport": True,
                 "accept_downloads": True,

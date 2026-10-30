@@ -1,6 +1,6 @@
 # chatgpt-web-send
 
-Versión del paquete: **0.1.2** (diagnóstico del navegador, ventana de tamaño nativo, descargas y acceso manual a la sesión habitual).
+Versión del paquete: **0.1.3** (sandbox de Chromium y Edge habilitado por defecto, además del diagnóstico, descargas y sesiones de v0.1.2).
 
 Paquete Python y CLI para **enviar prompts a conversaciones existentes de ChatGPT** desde un navegador donde el usuario inicia sesión. Se centra en el envío: **no lee el historial, mensajes anteriores ni respuestas**.
 
@@ -47,6 +47,21 @@ chatgpt-web-send send --browser-channel msedge --conversation-id "TU_ID" --promp
 ```
 
 Para Chrome cambia `msedge` por `chrome`. El diagnóstico muestra el canal elegido, el User-Agent que comunica el navegador y las rutas de perfil y descargas. **Si Edge no está instalado o no arranca, aparecerá un error antes de enviar contenido.** No se modifica ni falsifica el User-Agent.
+
+### Sandbox de seguridad habilitado
+
+A partir de **v0.1.3**, `chatgpt-web-send` inicia Chromium, Chrome o Edge con **`chromium_sandbox=True`**. Playwright desactiva este aislamiento de forma predeterminada, lo que puede hacer que Edge muestre un aviso sobre `--no-sandbox`. La versión corregida **no solicita ese argumento** y conserva las protecciones del navegador, siempre que el sistema y la política empresarial permitan arrancarlo.
+
+Para comprobar el navegador en Windows:
+
+```powershell
+python -m pip install --upgrade "git+https://github.com/SergioGilBorras/chatgpt-web-send.git@main"
+python -m chatgpt_web_send doctor --browser-channel msedge --keep-open
+```
+
+El diagnóstico muestra el canal real y el User-Agent, pero **no comprueba por sí solo la línea de comandos interna**. El proyecto comprueba además el arranque con sandbox en Windows CI. Si Chrome o Edge no arranca por una política o restricción del sistema, muestra el error y revisa la configuración de seguridad: **no vuelvas a añadir `--no-sandbox` para hacerlo arrancar**.
+
+Esta mejora de seguridad es independiente del CAPTCHA; **no garantiza que desaparezcan verificaciones humanas**.
 
 ## 1. Inicio de sesión
 

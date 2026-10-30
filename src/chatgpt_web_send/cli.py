@@ -17,7 +17,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="chatgpt-web-send", description="Send prompts through an authenticated ChatGPT browser tab."
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.2")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.3")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--profile-dir", type=Path, help="Persistent browser profile directory")
     common.add_argument(

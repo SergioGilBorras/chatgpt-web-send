@@ -31,6 +31,8 @@ jobs:
       - name: Launch installed Edge and verify its genuine User-Agent
         shell: pwsh
         run: |
+          python scripts/check_edge_sandbox.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $output = & python -m chatgpt_web_send doctor --browser-channel msedge --headless 2>&1
           $output | Out-Host
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
