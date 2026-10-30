@@ -36,6 +36,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--keep-open", action="store_true",
                         help="Inspect the browser visually until Enter is pressed")
+    doctor.add_argument("--headless", action="store_true",
+                        help="Run browser startup diagnostics without a visible window")
     normal = subcommands.add_parser(
         "open", help="Open ChatGPT in your regular system browser (manual mode)"
     )

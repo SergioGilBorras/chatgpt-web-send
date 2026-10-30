@@ -39,6 +39,7 @@ chatgpt-web-send open --conversation-id "TU_ID"
 ```powershell
 # Diagnóstico: arranca Edge y muestra su User-Agent REAL y el perfil utilizado.
 chatgpt-web-send doctor --browser-channel msedge --keep-open
+# En CI o cuando no hay escritorio: --headless permite comprobar el arranque sin ventana.
 
 # Después utiliza el MISMO canal para autenticarte y enviar.
 chatgpt-web-send login --browser-channel msedge
