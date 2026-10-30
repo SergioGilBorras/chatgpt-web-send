@@ -153,6 +153,7 @@ def test_browser_channel_uses_real_installed_edge_without_spoofing(tmp_path):
     options = driver.chromium.launch_persistent_context.call_args.kwargs
     assert options["channel"] == "msedge"
     assert options["headless"] is False
+    assert options["chromium_sandbox"] is True
     assert "user_agent" not in options
     assert "args" not in options
 
@@ -169,6 +170,7 @@ def test_bundled_chromium_remains_default(tmp_path, monkeypatch):
             pass
     options = driver.chromium.launch_persistent_context.call_args.kwargs
     assert "channel" not in options
+    assert options["chromium_sandbox"] is True
     assert "user_agent" not in options
 
 
@@ -214,6 +216,7 @@ def test_native_browser_window_downloads_and_persistent_history(tmp_path):
     assert options["channel"] == "msedge"
     assert options["accept_downloads"] is True
     assert options["no_viewport"] is True
+    assert options["chromium_sandbox"] is True
     assert "viewport" not in options
     assert options["user_data_dir"] == str(tmp_path / "profile")
     assert (tmp_path / "my-downloads").is_dir()
