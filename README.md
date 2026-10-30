@@ -1,5 +1,7 @@
 # chatgpt-web-send
 
+Versión del paquete: **0.1.1** (selección de Chrome/Edge instalados y diagnóstico de verificación humana).
+
 Paquete Python y CLI para **enviar prompts a conversaciones existentes de ChatGPT** desde un navegador donde el usuario inicia sesión. Se centra en el envío: **no lee el historial, mensajes anteriores ni respuestas**.
 
 > Proyecto no oficial: automatiza la web de ChatGPT con Playwright, no usa la API de OpenAI. Los cambios de la interfaz pueden romper el funcionamiento y la automatización está sujeta a las condiciones de uso aplicables. No evita verificaciones, CAPTCHAs ni controles de acceso.
@@ -8,7 +10,7 @@ Paquete Python y CLI para **enviar prompts a conversaciones existentes de ChatGP
 
 - Python 3.10 o posterior.
 - Cuenta de ChatGPT, accesible en el navegador.
-- Chromium instalado con Playwright.
+- Chromium instalado con Playwright. Opcionalmente, Chrome o Edge ya instalados.
 
 ## Instalación
 
@@ -25,7 +27,23 @@ Desde el repositorio:
 
 Se abre Chromium. **Inicia sesión manualmente en la ventana** y después **pulsa Enter en la terminal**. El perfil local de Chromium conservará la sesión para futuros envíos. El paquete no pide credenciales ni lee cookies.
 
-Perfil predeterminado: **~/.chatgpt-web-send/profile**. Se puede cambiar con la opción **--profile-dir RUTA** o la variable de entorno **CHATGPT_WEB_SEND_PROFILE_DIR**.
+Perfil predeterminado con Chromium: **~/.chatgpt-web-send/profile**. Puede cambiarse mediante **--profile-dir RUTA** o **CHATGPT_WEB_SEND_PROFILE_DIR**.
+
+### Compatibilidad: Chrome o Edge realmente instalados
+
+Playwright permite ejecutar Google Chrome o Microsoft Edge **con sus propios binarios y User-Agent reales**, sin falsificar cabeceras ni esconder la automatización. Esta opción sirve para comprobar compatibilidad de navegador y **no garantiza solucionar el CAPTCHA**.
+
+```powershell
+chatgpt-web-send login --browser-channel msedge
+chatgpt-web-send send --browser-channel msedge --conversation-id "TU_ID" --prompt "Prueba ficticia" --keep-open
+```
+
+También admite `--browser-channel chrome` si tienes Google Chrome instalado. Usa **el mismo canal** al iniciar sesión y al enviar. Se utilizan perfiles de sesión persistentes separados para no modificar el perfil Chromium anterior: `~/.chatgpt-web-send/profile-msedge` y `~/.chatgpt-web-send/profile-chrome`. Si proporcionas un `--profile-dir` manual, utiliza un directorio independiente por navegador y no lo abras simultáneamente en otra aplicación.
+
+Cuando una aplicación crea `ChatGPTWeb()` directamente (por ejemplo un host Python), puede seleccionar el navegador mediante `CHATGPT_WEB_SEND_BROWSER_CHANNEL=msedge` o `chrome` antes de arrancar. En PowerShell: `$env:CHATGPT_WEB_SEND_BROWSER_CHANNEL = "msedge"`. Para futuras sesiones de Windows: `setx CHATGPT_WEB_SEND_BROWSER_CHANNEL msedge` y reinicia la aplicación. **Un instalador de Betterbird empaquetado previamente con PyInstaller no recibe automáticamente el código actualizado:** necesitará reconstruirse y publicarse después de integrar esta mejora.
+
+El inicio de sesión es manual. Si ChatGPT sigue solicitando verificación humana, la herramienta se detiene; no intenta saltarse ni reintentar ese control.
+
 
 **Importante:** ese directorio contiene datos sensibles de sesión. No lo subas nunca a Git, no lo compartas y no ejecutes dos procesos que utilicen el mismo perfil a la vez. Playwright utiliza un perfil propio, no reutiliza automáticamente la sesión de tu navegador habitual.
 
@@ -53,6 +71,7 @@ Opciones:
 | Opción | Descripción |
 | --- | --- |
 | --profile-dir RUTA | Directorio de sesión persistente (login y send) |
+| --browser-channel chrome/msedge | Ejecuta Chrome o Edge instalados sin falsificar User-Agent |
 | --timeout SEGUNDOS | Espera del editor; 60 s de forma predeterminada |
 | --completion-timeout SEGUNDOS | Espera de los controles de generación; 300 s |
 | --no-wait | Termina después de confirmar que se vació el editor |
@@ -94,6 +113,22 @@ Puedes configurar **ChatGPTWeb(profile_dir="...", headless=False, timeout=30)** 
 **submitted=True** significa que el campo de escritura se vació después de enviar: **no es prueba de ejecución en el servidor**. **completed=True** significa que se observó aparecer y desaparecer el control de detener; **completed=None** significa que no pudo verificarse el final.
 
 La conversación debe existir y ser accesible con la cuenta iniciada. Si caduca la sesión, ejecuta de nuevo **login**. Los cambios de UI o medidas antiautomatización pueden impedir su uso. Para una integración oficial y más estable considera la [API de OpenAI](https://platform.openai.com/docs/).
+
+## Verificaciones humanas repetidas (CAPTCHA)
+
+Si ChatGPT muestra reiteradamente una pantalla de **verificación humana**, el sitio puede no estar aceptando esa sesión automatizada. **No significa necesariamente que la contraseña o las cookies sean incorrectas.**
+
+En esta versión el cliente detecta señales claras de una pantalla de verificación mediante **el título o la ruta de la página**, se detiene con un error `HumanVerificationRequiredError` y **no rellena ni envía el prompt**. No lee mensajes ni respuestas ni intenta completar, saltarse o repetir automáticamente el CAPTCHA. Un desafío que no sea reconocible por esos indicadores puede seguir apareciendo como un error genérico de editor.
+
+Para diagnosticarlo sin exponer datos privados:
+
+1. Ejecuta `chatgpt-web-send login` con el navegador visible y confirma manualmente que accedes a ChatGPT y que puedes ver el editor **antes de pulsar Enter**. La sesión se almacena en `~/.chatgpt-web-send/profile` o en `CHATGPT_WEB_SEND_PROFILE_DIR`, no en el navegador habitual.
+2. Comprueba que `login` y `send` usan exactamente el **mismo directorio de perfil y usuario de Windows**. No abras dos procesos simultáneos con ese perfil.
+3. Si el desafío reaparece, no insistas con un bucle de reintentos. Usa `--keep-open` en una prueba con texto ficticio para inspeccionar la pantalla y comprobar que estás en la cuenta correcta.
+4. Actualiza la versión normal de Chromium/Playwright por sus canales oficiales si hay incompatibilidades y revisa ajustes de conexión, filtros o extensiones de seguridad, **sin intentar ocultar que el proceso está automatizado**.
+5. Si el sitio no permite automatizar esa sesión, utiliza la **[API oficial de OpenAI](https://platform.openai.com/docs/)** para un envío programático estable. Esta API **no equivale a escribir en una conversación existente de la web ChatGPT**, por lo que esa alternativa requiere rediseñar el flujo.
+
+Cambiar el `User-Agent`, falsificar huellas del navegador, modificar indicadores de Playwright o automatizar la resolución de CAPTCHAs **no forma parte de este proyecto**. Las esperas actuales de Playwright ya siguen la disponibilidad real del editor y del botón: pausas aleatorias no garantizan evitar verificaciones.
 
 ## Desarrollo
 

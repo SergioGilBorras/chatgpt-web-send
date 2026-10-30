@@ -88,3 +88,112 @@ def test_uses_send_button_even_when_initially_disabled():
     client.send("abc-123", "Hola", wait=False)
     button.click.assert_called_once()
     composer.press.assert_not_called()
+
+
+def test_verification_screen_aborts_without_typing_or_sending():
+    from chatgpt_web_send.client import HumanVerificationRequiredError
+
+    client, page, composer, button = browser_client()
+    page.title.return_value = "Just a moment..."
+    with pytest.raises(HumanVerificationRequiredError, match="human verification"):
+        client.send("abc-123", "PRIVATE TEST PROMPT", wait=False)
+    composer.fill.assert_not_called()
+    button.click.assert_not_called()
+    composer.press.assert_not_called()
+
+
+def test_verification_after_editor_wait_is_reported():
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    from chatgpt_web_send.client import HumanVerificationRequiredError
+
+    client, page, composer, button = browser_client()
+    composer.wait_for.side_effect = PlaywrightTimeoutError("composer absent")
+    page.title.side_effect = ["ChatGPT", "Verify you are human"]
+    with pytest.raises(HumanVerificationRequiredError):
+        client.send("abc-123", "PRIVATE TEST PROMPT", wait=False)
+    composer.fill.assert_not_called()
+    button.click.assert_not_called()
+
+
+def test_challenge_path_detected_without_reading_page_content():
+    from chatgpt_web_send.client import HumanVerificationRequiredError
+
+    client, page, composer, button = browser_client()
+    page.url = "https://chatgpt.com/cdn-cgi/challenge-platform/some-id"
+    with pytest.raises(HumanVerificationRequiredError):
+        client.send("abc-123", "PRIVATE TEST PROMPT", wait=False)
+    page.title.assert_not_called()
+    composer.fill.assert_not_called()
+    button.click.assert_not_called()
+
+
+def test_normal_chat_page_is_not_flagged_as_challenge():
+    client, page, _, button = browser_client()
+    page.title.return_value = "ChatGPT"
+    result = client.send("abc-123", "Safe dummy text", wait=False)
+    assert result.submitted is True
+    button.click.assert_called_once()
+
+
+def test_non_string_page_title_is_not_mistaken_for_challenge():
+    client, page, _, _ = browser_client()
+    page.title.return_value = None
+    assert client._requires_human_verification(page) is False
+
+
+def test_browser_channel_uses_real_installed_edge_without_spoofing(tmp_path):
+    from unittest.mock import patch
+
+    client = ChatGPTWeb(profile_dir=tmp_path / "edge", browser_channel="msedge")
+    driver = MagicMock()
+    with patch("chatgpt_web_send.client.sync_playwright") as playwright:
+        playwright.return_value.start.return_value = driver
+        with client:
+            pass
+    options = driver.chromium.launch_persistent_context.call_args.kwargs
+    assert options["channel"] == "msedge"
+    assert options["headless"] is False
+    assert "user_agent" not in options
+    assert "args" not in options
+
+
+def test_bundled_chromium_remains_default(tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    monkeypatch.delenv("CHATGPT_WEB_SEND_BROWSER_CHANNEL", raising=False)
+    client = ChatGPTWeb(profile_dir=tmp_path / "old-profile")
+    driver = MagicMock()
+    with patch("chatgpt_web_send.client.sync_playwright") as playwright:
+        playwright.return_value.start.return_value = driver
+        with client:
+            pass
+    options = driver.chromium.launch_persistent_context.call_args.kwargs
+    assert "channel" not in options
+    assert "user_agent" not in options
+
+
+def test_browser_profiles_are_isolated_by_channel(tmp_path, monkeypatch):
+    monkeypatch.setattr("chatgpt_web_send.client.Path.home", lambda: tmp_path)
+    monkeypatch.delenv("CHATGPT_WEB_SEND_PROFILE_DIR", raising=False)
+    monkeypatch.delenv("CHATGPT_WEB_SEND_BROWSER_CHANNEL", raising=False)
+    root = tmp_path / ".chatgpt-web-send"
+    assert ChatGPTWeb().profile_dir == root / "profile"
+    assert ChatGPTWeb(browser_channel="chrome").profile_dir == root / "profile-chrome"
+    assert ChatGPTWeb(browser_channel="msedge").profile_dir == root / "profile-msedge"
+
+
+def test_explicit_profile_overrides_environment_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHATGPT_WEB_SEND_BROWSER_CHANNEL", "msedge")
+    monkeypatch.setenv("CHATGPT_WEB_SEND_PROFILE_DIR", str(tmp_path / "shared"))
+    client = ChatGPTWeb()
+    assert client.browser_channel == "msedge"
+    assert client.profile_dir == tmp_path / "shared"
+    selected = ChatGPTWeb(browser_channel="chrome", profile_dir=tmp_path / "dedicated")
+    assert selected.browser_channel == "chrome"
+    assert selected.profile_dir == tmp_path / "dedicated"
+
+
+@pytest.mark.parametrize("channel", ["firefox", "safari", "chrome-canary", "../edge"])
+def test_unsupported_browser_channel_fails_closed(channel):
+    with pytest.raises(ValueError, match="browser_channel"):
+        ChatGPTWeb(browser_channel=channel)
