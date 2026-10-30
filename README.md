@@ -8,7 +8,7 @@ Paquete Python y CLI para **enviar prompts a conversaciones existentes de ChatGP
 
 - Python 3.10 o posterior.
 - Cuenta de ChatGPT, accesible en el navegador.
-- Chromium instalado con Playwright.
+- Chromium instalado con Playwright. Opcionalmente, Chrome o Edge ya instalados.
 
 ## Instalación
 
@@ -25,7 +25,23 @@ Desde el repositorio:
 
 Se abre Chromium. **Inicia sesión manualmente en la ventana** y después **pulsa Enter en la terminal**. El perfil local de Chromium conservará la sesión para futuros envíos. El paquete no pide credenciales ni lee cookies.
 
-Perfil predeterminado: **~/.chatgpt-web-send/profile**. Se puede cambiar con la opción **--profile-dir RUTA** o la variable de entorno **CHATGPT_WEB_SEND_PROFILE_DIR**.
+Perfil predeterminado con Chromium: **~/.chatgpt-web-send/profile**. Puede cambiarse mediante **--profile-dir RUTA** o **CHATGPT_WEB_SEND_PROFILE_DIR**.
+
+### Compatibilidad: Chrome o Edge realmente instalados
+
+Playwright permite ejecutar Google Chrome o Microsoft Edge **con sus propios binarios y User-Agent reales**, sin falsificar cabeceras ni esconder la automatización. Esta opción sirve para comprobar compatibilidad de navegador y **no garantiza solucionar el CAPTCHA**.
+
+```powershell
+chatgpt-web-send login --browser-channel msedge
+chatgpt-web-send send --browser-channel msedge --conversation-id "TU_ID" --prompt "Prueba ficticia" --keep-open
+```
+
+También admite `--browser-channel chrome` si tienes Google Chrome instalado. Usa **el mismo canal** al iniciar sesión y al enviar. Se utilizan perfiles de sesión persistentes separados para no modificar el perfil Chromium anterior: `~/.chatgpt-web-send/profile-msedge` y `~/.chatgpt-web-send/profile-chrome`. Si proporcionas un `--profile-dir` manual, utiliza un directorio independiente por navegador y no lo abras simultáneamente en otra aplicación.
+
+Cuando una aplicación crea `ChatGPTWeb()` directamente (por ejemplo un host Python), puede seleccionar el navegador mediante `CHATGPT_WEB_SEND_BROWSER_CHANNEL=msedge` o `chrome` antes de arrancar. En PowerShell: `$env:CHATGPT_WEB_SEND_BROWSER_CHANNEL = "msedge"`. Para futuras sesiones de Windows: `setx CHATGPT_WEB_SEND_BROWSER_CHANNEL msedge` y reinicia la aplicación. **Un instalador de Betterbird empaquetado previamente con PyInstaller no recibe automáticamente el código actualizado:** necesitará reconstruirse y publicarse después de integrar esta mejora.
+
+El inicio de sesión es manual. Si ChatGPT sigue solicitando verificación humana, la herramienta se detiene; no intenta saltarse ni reintentar ese control.
+
 
 **Importante:** ese directorio contiene datos sensibles de sesión. No lo subas nunca a Git, no lo compartas y no ejecutes dos procesos que utilicen el mismo perfil a la vez. Playwright utiliza un perfil propio, no reutiliza automáticamente la sesión de tu navegador habitual.
 
@@ -53,6 +69,7 @@ Opciones:
 | Opción | Descripción |
 | --- | --- |
 | --profile-dir RUTA | Directorio de sesión persistente (login y send) |
+| --browser-channel chrome/msedge | Ejecuta Chrome o Edge instalados sin falsificar User-Agent |
 | --timeout SEGUNDOS | Espera del editor; 60 s de forma predeterminada |
 | --completion-timeout SEGUNDOS | Espera de los controles de generación; 300 s |
 | --no-wait | Termina después de confirmar que se vació el editor |

@@ -22,6 +22,9 @@ from playwright.sync_api import (
 )
 
 BASE_URL = "https://chatgpt.com"
+# Optional genuine installed browsers, without User-Agent spoofing or
+# tampering with automation indicators.
+_SUPPORTED_BROWSER_CHANNELS = frozenset(("chrome", "msedge"))
 _CONVERSATION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
 # Restrict fallbacks to the conversation composer: never match editable past messages.
 # Some ChatGPT deployments use a textarea, others a ProseMirror/Lexical editor.
@@ -95,10 +98,13 @@ class SendResult:
     completed: bool | None
 
 
-def default_profile_dir() -> Path:
-    """Persistent, private profile directory; override with an environment variable."""
+def default_profile_dir(browser_channel: str | None = None) -> Path:
+    """Separate persistent browser profiles; retain the legacy Chromium path."""
     override = os.environ.get("CHATGPT_WEB_SEND_PROFILE_DIR")
-    return Path(override).expanduser() if override else Path.home() / ".chatgpt-web-send" / "profile"
+    if override:
+        return Path(override).expanduser()
+    base = Path.home() / ".chatgpt-web-send"
+    return base / (f"profile-{browser_channel}" if browser_channel else "profile")
 
 
 class ChatGPTWeb:
@@ -116,10 +122,22 @@ class ChatGPTWeb:
         *,
         headless: bool = False,
         timeout: float = 60.0,
+        browser_channel: str | None = None,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
-        self.profile_dir = Path(profile_dir).expanduser() if profile_dir else default_profile_dir()
+        selected = (
+            browser_channel if browser_channel is not None
+            else os.environ.get("CHATGPT_WEB_SEND_BROWSER_CHANNEL", "")
+        )
+        selected = selected.strip().lower()
+        if selected and selected not in _SUPPORTED_BROWSER_CHANNELS:
+            raise ValueError("browser_channel must be 'chrome', 'msedge', or unset")
+        self.browser_channel = selected or None
+        self.profile_dir = (
+            Path(profile_dir).expanduser()
+            if profile_dir else default_profile_dir(self.browser_channel)
+        )
         self.headless = headless
         self.timeout = timeout
         self._playwright: Playwright | None = None
@@ -133,11 +151,18 @@ class ChatGPTWeb:
             self.profile_dir.chmod(0o700)
         self._playwright = sync_playwright().start()
         try:
+            options = {
+                "user_data_dir": str(self.profile_dir),
+                "headless": self.headless,
+                "viewport": {"width": 1280, "height": 900},
+                "accept_downloads": False,
+            }
+            if self.browser_channel:
+                # Launch the genuine installed browser and keep its real UA.
+                # Do not spoof fingerprints or bypass human verification.
+                options["channel"] = self.browser_channel
             self._context = self._playwright.chromium.launch_persistent_context(
-                user_data_dir=str(self.profile_dir),
-                headless=self.headless,
-                viewport={"width": 1280, "height": 900},
-                accept_downloads=False,
+                **options
             )
         except Exception:
             self._playwright.stop()

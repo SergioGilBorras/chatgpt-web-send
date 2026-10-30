@@ -18,6 +18,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--profile-dir", type=Path, help="Persistent browser profile directory")
+    common.add_argument(
+        "--browser-channel", choices=("chrome", "msedge"),
+        help="Use installed Chrome or Edge; default is Playwright Chromium",
+    )
     common.add_argument("--timeout", type=float, default=60.0, help="UI timeout in seconds (default: 60)")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("login", parents=[common], help="Sign in interactively (once)")
@@ -42,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         with ChatGPTWeb(profile_dir=args.profile_dir, timeout=args.timeout,
-                        headless=getattr(args, "headless", False)) as client:
+                        headless=getattr(args, "headless", False),
+                        browser_channel=args.browser_channel) as client:
             if args.command == "login":
                 client.open_login()
                 print("Sign in to ChatGPT in the browser. Before pressing Enter,")
