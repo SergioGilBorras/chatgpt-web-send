@@ -160,9 +160,17 @@ class ChatGPTWeb:
         timeout: float = 60.0,
         browser_channel: str | None = None,
         downloads_dir: str | Path | None = None,
+        locale: str | None = None,
+        timezone_id: str | None = None,
+        verification_grace_seconds: float = 0.0,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
+        if verification_grace_seconds < 0:
+            raise ValueError("verification_grace_seconds cannot be negative")
+        self.locale = locale
+        self.timezone_id = timezone_id
+        self.verification_grace_seconds = verification_grace_seconds
         selected = (
             browser_channel if browser_channel is not None
             else os.environ.get("CHATGPT_WEB_SEND_BROWSER_CHANNEL", "")
@@ -206,6 +214,10 @@ class ChatGPTWeb:
                 "no_viewport": True,
                 "accept_downloads": True,
             }
+            if self.locale:
+                options["locale"] = self.locale
+            if self.timezone_id:
+                options["timezone_id"] = self.timezone_id
             if self.browser_channel:
                 # Launch the genuine installed browser and keep its real UA.
                 # Do not spoof fingerprints or bypass human verification.
@@ -300,6 +312,21 @@ class ChatGPTWeb:
                 "Changing fingerprints or repeating the challenge is not supported."
             )
 
+    def _wait_for_manual_verification(self, page: Page) -> None:
+        """Allow a visible challenge to clear; never interact with the challenge.
+
+        The optional grace period does not retry a send or attempt to solve a
+        CAPTCHA. A user can complete verification in the visible browser.
+        """
+        if not self._requires_human_verification(page):
+            return
+        deadline = time.monotonic() + self.verification_grace_seconds
+        while time.monotonic() < deadline:
+            page.wait_for_timeout(min(400, max(1, (deadline - time.monotonic()) * 1000)))
+            if not self._requires_human_verification(page):
+                return
+        self._stop_if_verification(page)
+
     def _page(self) -> Page:
         if self._context is None:
             raise ChatGPTWebError("Use 'with ChatGPTWeb() as client:' first")
@@ -346,7 +373,7 @@ class ChatGPTWeb:
         url = f"{BASE_URL}/c/{conversation_id}"
         page = self._page()
         page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
-        self._stop_if_verification(page)
+        self._wait_for_manual_verification(page)
 
         composer = page.locator(_COMPOSER).first
         try:
@@ -354,7 +381,7 @@ class ChatGPTWeb:
         except PlaywrightTimeoutError as exc:
             # The verification screen may appear after DOMContentLoaded,
             # while we were waiting for the composer.
-            self._stop_if_verification(page)
+            self._wait_for_manual_verification(page)
             if "/auth/" in urlsplit(page.url).path or "/login" in urlsplit(page.url).path:
                 raise AuthenticationRequiredError("Sign in first with: chatgpt-web-send login") from exc
             raise SubmissionError(
@@ -369,7 +396,7 @@ class ChatGPTWeb:
             raise SubmissionError("Browser did not remain on the requested conversation URL")
 
         try:
-            self._stop_if_verification(page)
+            self._wait_for_manual_verification(page)
             composer.fill(prompt)
             self._stop_if_verification(page)
             send_button = page.locator(_SEND_BUTTON).first

@@ -257,3 +257,37 @@ def test_rejects_windows_default_edge_profile(monkeypatch, tmp_path):
         ChatGPTWeb(profile_dir=normal, browser_channel="msedge")
     with pytest.raises(ValueError, match="normal Chrome/Edge personal profile"):
         ChatGPTWeb(profile_dir=normal / "Default", browser_channel="msedge")
+
+
+def test_optional_locale_timezone_are_forwarded_without_spoofing(tmp_path):
+    from unittest.mock import patch
+
+    client = ChatGPTWeb(profile_dir=tmp_path / "profile", locale="es-ES",
+                        timezone_id="Europe/Madrid")
+    driver = MagicMock()
+    with patch("chatgpt_web_send.client.sync_playwright") as mocked:
+        mocked.return_value.start.return_value = driver
+        with client:
+            pass
+    options = driver.chromium.launch_persistent_context.call_args.kwargs
+    assert options["locale"] == "es-ES"
+    assert options["timezone_id"] == "Europe/Madrid"
+    assert options["chromium_sandbox"] is True
+    assert "user_agent" not in options
+    assert "ignore_default_args" not in options
+
+
+def test_manual_challenge_waits_for_user_then_continues():
+    client, page, composer, button = browser_client()
+    client.verification_grace_seconds = 10.0
+    page.title.side_effect = ["Verify you are human", "ChatGPT", "ChatGPT", "ChatGPT"]
+    result = client.send("abc-123", "Prueba", wait=False)
+    assert result.submitted is True
+    page.wait_for_timeout.assert_called()
+    composer.fill.assert_called_once_with("Prueba")
+    button.click.assert_called_once()
+
+
+def test_negative_verification_grace_is_rejected():
+    with pytest.raises(ValueError, match="verification_grace_seconds"):
+        ChatGPTWeb(verification_grace_seconds=-1)
