@@ -197,3 +197,60 @@ def test_explicit_profile_overrides_environment_default(tmp_path, monkeypatch):
 def test_unsupported_browser_channel_fails_closed(channel):
     with pytest.raises(ValueError, match="browser_channel"):
         ChatGPTWeb(browser_channel=channel)
+
+
+def test_native_browser_window_downloads_and_persistent_history(tmp_path):
+    from unittest.mock import patch
+
+    client = ChatGPTWeb(profile_dir=tmp_path / "profile",
+                        downloads_dir=tmp_path / "my-downloads",
+                        browser_channel="msedge")
+    playwright = MagicMock()
+    with patch("chatgpt_web_send.client.sync_playwright") as mocked:
+        mocked.return_value.start.return_value = playwright
+        with client:
+            pass
+    options = playwright.chromium.launch_persistent_context.call_args.kwargs
+    assert options["channel"] == "msedge"
+    assert options["accept_downloads"] is True
+    assert options["no_viewport"] is True
+    assert "viewport" not in options
+    assert options["user_data_dir"] == str(tmp_path / "profile")
+    assert (tmp_path / "my-downloads").is_dir()
+    assert playwright.chromium.launch_persistent_context.return_value.on.call_args.args[0] == "page"
+
+
+def test_browser_download_is_saved_with_unique_filename(tmp_path):
+    client = ChatGPTWeb(profile_dir=tmp_path / "profile",
+                        downloads_dir=tmp_path / "downloads")
+    client.downloads_dir.mkdir()
+    download = MagicMock()
+    download.suggested_filename = r"..\\..\\private.pdf"
+    client._save_download(download)
+    saved = download.save_as.call_args.args[0]
+    destination = __import__("pathlib").Path(saved)
+    assert destination.parent == tmp_path / "downloads"
+    assert destination.name.startswith("chatgpt-")
+    assert destination.name.endswith("private.pdf")
+    assert ".." not in destination.name
+
+
+def test_doctor_reads_only_browser_metadata_not_conversation(tmp_path):
+    client, page, _, _ = browser_client()
+    client.downloads_dir = tmp_path
+    page.evaluate.return_value = "Mozilla/5.0 Edg/139.0"
+    info = client.browser_info()
+    assert info["user_agent"] == "Mozilla/5.0 Edg/139.0"
+    assert info["channel"] == "playwright-chromium"
+    page.evaluate.assert_called_once_with("() => navigator.userAgent")
+    page.goto.assert_not_called()
+
+
+def test_rejects_windows_default_edge_profile(monkeypatch, tmp_path):
+    monkeypatch.setattr("chatgpt_web_send.client.sys.platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    normal = tmp_path / "Local" / "Microsoft" / "Edge" / "User Data"
+    with pytest.raises(ValueError, match="normal Chrome/Edge personal profile"):
+        ChatGPTWeb(profile_dir=normal, browser_channel="msedge")
+    with pytest.raises(ValueError, match="normal Chrome/Edge personal profile"):
+        ChatGPTWeb(profile_dir=normal / "Default", browser_channel="msedge")

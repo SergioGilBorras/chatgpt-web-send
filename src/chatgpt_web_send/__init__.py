@@ -4,17 +4,19 @@ from .client import (
     AuthenticationRequiredError,
     ChatGPTWeb,
     ChatGPTWebError,
+    HumanVerificationRequiredError,
     CompletionTimeoutError,
     SendResult,
     SubmissionError,
     default_profile_dir,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 __all__ = [
     "AuthenticationRequiredError",
     "ChatGPTWeb",
     "ChatGPTWebError",
+    "HumanVerificationRequiredError",
     "CompletionTimeoutError",
     "SendResult",
     "SubmissionError",

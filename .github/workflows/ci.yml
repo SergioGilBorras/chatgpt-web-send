@@ -17,3 +17,24 @@ jobs:
         run: python -m pip install -e '.[dev]'
       - name: Tests
         run: python -m pytest -q
+
+  smoke-edge-windows:
+    name: Real Microsoft Edge browser startup (Windows)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python package and Playwright
+        run: python -m pip install -e .
+      - name: Launch installed Edge and verify its genuine User-Agent
+        shell: pwsh
+        run: |
+          $output = & python -m chatgpt_web_send doctor --browser-channel msedge --headless 2>&1
+          $output | Out-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (($output | Out-String) -notmatch 'Edg/') {
+            Write-Error 'Edge channel did not produce a Microsoft Edge user agent'
+            exit 1
+          }

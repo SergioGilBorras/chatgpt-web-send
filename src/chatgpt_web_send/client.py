@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from playwright.sync_api import (
@@ -107,6 +110,39 @@ def default_profile_dir(browser_channel: str | None = None) -> Path:
     return base / (f"profile-{browser_channel}" if browser_channel else "profile")
 
 
+def _forbid_default_browser_profile(profile_dir: Path, channel: str | None) -> None:
+    """Protect real daily browsing data from unsupported profile automation.
+
+    Playwright/Chrome explicitly do not support the default personal Chrome
+    user data directory (Chrome 136+). Never attempt to edit/lock it here.
+    """
+    if not channel:
+        return
+    roots: list[Path] = []
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            base = Path(local)
+            roots.append(base / ("Google/Chrome/User Data" if channel == "chrome"
+                                  else "Microsoft/Edge/User Data"))
+    elif sys.platform == "darwin":
+        roots.append(Path.home() / ("Library/Application Support/Google/Chrome"
+                                   if channel == "chrome"
+                                   else "Library/Application Support/Microsoft Edge"))
+    elif sys.platform.startswith("linux"):
+        roots.append(Path.home() / (".config/google-chrome"
+                                   if channel == "chrome" else ".config/microsoft-edge"))
+    selected = str(profile_dir.resolve()).casefold()
+    for root in roots:
+        standard = str(root.resolve()).casefold()
+        if selected == standard or selected.startswith(standard + os.sep):
+            raise ValueError(
+                "Playwright cannot use the normal Chrome/Edge personal profile. "
+                "Use its separate persistent profile; run 'chatgpt-web-send open' "
+                "to access your existing personal browser session manually."
+            )
+
+
 class ChatGPTWeb:
     """A browser-backed client. Use as a context manager to keep the tab alive.
 
@@ -123,6 +159,7 @@ class ChatGPTWeb:
         headless: bool = False,
         timeout: float = 60.0,
         browser_channel: str | None = None,
+        downloads_dir: str | Path | None = None,
     ) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be greater than zero")
@@ -138,6 +175,13 @@ class ChatGPTWeb:
             Path(profile_dir).expanduser()
             if profile_dir else default_profile_dir(self.browser_channel)
         )
+        _forbid_default_browser_profile(self.profile_dir, self.browser_channel)
+        # Downloaded files are exported explicitly; Playwright otherwise
+        # deletes accepted downloads on context close.
+        self.downloads_dir = (
+            Path(downloads_dir).expanduser()
+            if downloads_dir is not None else Path.home() / "Downloads"
+        )
         self.headless = headless
         self.timeout = timeout
         self._playwright: Playwright | None = None
@@ -147,6 +191,7 @@ class ChatGPTWeb:
         if self._context is not None:
             raise ChatGPTWebError("The browser is already open")
         self.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.downloads_dir.mkdir(parents=True, exist_ok=True)
         if os.name != "nt":
             self.profile_dir.chmod(0o700)
         self._playwright = sync_playwright().start()
@@ -154,8 +199,9 @@ class ChatGPTWeb:
             options = {
                 "user_data_dir": str(self.profile_dir),
                 "headless": self.headless,
-                "viewport": {"width": 1280, "height": 900},
-                "accept_downloads": False,
+                # Use native window sizing rather than a fixed emulated viewport.
+                "no_viewport": True,
+                "accept_downloads": True,
             }
             if self.browser_channel:
                 # Launch the genuine installed browser and keep its real UA.
@@ -164,6 +210,13 @@ class ChatGPTWeb:
             self._context = self._playwright.chromium.launch_persistent_context(
                 **options
             )
+            # In persistent contexts the browser maintains its own history,
+            # bookmarks, downloads UI and sign-in inside this *separate* profile.
+            # Playwright removes temporary downloaded files on close; save a
+            # user-visible copy into the chosen Downloads directory.
+            self._context.on("page", self._watch_downloads)
+            for page in self._context.pages:
+                self._watch_downloads(page)
         except Exception:
             self._playwright.stop()
             self._playwright = None
@@ -184,6 +237,26 @@ class ChatGPTWeb:
                 self._playwright.stop()
                 self._playwright = None
 
+
+    def _watch_downloads(self, page: Page) -> None:
+        page.on("download", self._save_download)
+
+    def _save_download(self, download: object) -> None:
+        """Preserve accepted downloads; never inspect their contents.
+
+        The filename is untrusted, so use an unpredictable prefix and strip
+        directory components. Do not overwrite preexisting user files.
+        """
+        raw = str(download.suggested_filename).replace("\\", "/")
+        basename = raw.rsplit("/", 1)[-1]
+        basename = re.sub(r"[^A-Za-z0-9._ -]", "_", basename)[:120].strip(" .")
+        safe_name = basename or "download"
+        destination = self.downloads_dir / f"chatgpt-{uuid.uuid4().hex}-{safe_name}"
+        try:
+            download.save_as(str(destination))
+        except Exception:
+            # Do not print remote URLs, file names or other private data.
+            raise ChatGPTWebError("Could not save a browser download")
 
     @staticmethod
     def _requires_human_verification(page: Page) -> bool:
@@ -228,6 +301,17 @@ class ChatGPTWeb:
         if self._context is None:
             raise ChatGPTWebError("Use 'with ChatGPTWeb() as client:' first")
         return self._context.pages[0] if self._context.pages else self._context.new_page()
+
+    def browser_info(self) -> dict[str, str]:
+        """Inspect browser metadata only; never access chat messages or cookies."""
+        page = self._page()
+        user_agent = page.evaluate("() => navigator.userAgent")
+        return {
+            "channel": self.browser_channel or "playwright-chromium",
+            "user_agent": str(user_agent),
+            "profile_dir": str(self.profile_dir),
+            "downloads_dir": str(self.downloads_dir),
+        }
 
     def open_login(self) -> None:
         """Open ChatGPT so the user can sign in themselves; does not read cookies."""

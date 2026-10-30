@@ -1,6 +1,6 @@
 # chatgpt-web-send
 
-Versión del paquete: **0.1.1** (selección de Chrome/Edge instalados y diagnóstico de verificación humana).
+Versión del paquete: **0.1.2** (diagnóstico del navegador, ventana de tamaño nativo, descargas y acceso manual a la sesión habitual).
 
 Paquete Python y CLI para **enviar prompts a conversaciones existentes de ChatGPT** desde un navegador donde el usuario inicia sesión. Se centra en el envío: **no lee el historial, mensajes anteriores ni respuestas**.
 
@@ -20,6 +20,33 @@ Desde el repositorio:
     cd chatgpt-web-send
     python -m pip install -e .
     python -m playwright install chromium
+
+## Dos modos de navegador: tu sesión habitual o automatización
+
+**Modo manual, navegador habitual:** abre el Chrome, Edge u otro navegador que tengas configurado como predeterminado, **con tu perfil personal existente**, sus marcadores, historial, descargas y sesión ya iniciada. No usa Playwright ni lee la conversación; tendrás que escribir o pegar y enviar el mensaje tú mismo.
+
+```powershell
+chatgpt-web-send open
+chatgpt-web-send open --conversation-id "TU_ID"
+```
+
+**Modo automatizado:** utiliza Playwright para insertar y enviar el texto en el editor, con Chrome/Edge real si lo seleccionas. La ventana tiene **tamaño nativo** (sin viewport artificial de 1280 × 900), permite descargas y las exporta a tu carpeta **Descargas** (o la indicada con `--downloads-dir`) para que permanezcan después de cerrar el navegador. El navegador almacena historial, favoritos y cookies en su **perfil propio persistente**. No comparte por defecto la sesión ni el historial del navegador personal, y eso es deliberado.
+
+**Por qué no mezclar ambos perfiles:** Chrome 136+ y Playwright no admiten automatizar directamente el directorio de datos principal del navegador. Intentarlo puede hacer que Chrome falle al arrancar o que el perfil se bloquee. El paquete rechaza expresamente `--profile-dir` si apunta al perfil predeterminado de Chrome o Edge. No copias ni transfieras cookies o perfiles entre navegadores.
+
+### Comprobar Edge o Chrome antes de enviar
+
+```powershell
+# Diagnóstico: arranca Edge y muestra su User-Agent REAL y el perfil utilizado.
+chatgpt-web-send doctor --browser-channel msedge --keep-open
+# En CI o cuando no hay escritorio: --headless permite comprobar el arranque sin ventana.
+
+# Después utiliza el MISMO canal para autenticarte y enviar.
+chatgpt-web-send login --browser-channel msedge
+chatgpt-web-send send --browser-channel msedge --conversation-id "TU_ID" --prompt "Prueba" --keep-open
+```
+
+Para Chrome cambia `msedge` por `chrome`. El diagnóstico muestra el canal elegido, el User-Agent que comunica el navegador y las rutas de perfil y descargas. **Si Edge no está instalado o no arranca, aparecerá un error antes de enviar contenido.** No se modifica ni falsifica el User-Agent.
 
 ## 1. Inicio de sesión
 
@@ -72,6 +99,9 @@ Opciones:
 | --- | --- |
 | --profile-dir RUTA | Directorio de sesión persistente (login y send) |
 | --browser-channel chrome/msedge | Ejecuta Chrome o Edge instalados sin falsificar User-Agent |
+| --downloads-dir RUTA | Guarda las descargas del navegador en esta carpeta; por defecto `~/Downloads` |
+| doctor [--keep-open] | Abre el navegador y muestra canal real, User-Agent, perfil y carpeta de descargas |
+| open [--conversation-id ID] | Abre tu navegador habitual; debes enviar el mensaje manualmente |
 | --timeout SEGUNDOS | Espera del editor; 60 s de forma predeterminada |
 | --completion-timeout SEGUNDOS | Espera de los controles de generación; 300 s |
 | --no-wait | Termina después de confirmar que se vació el editor |
@@ -104,7 +134,7 @@ Puedes configurar **ChatGPTWeb(profile_dir="...", headless=False, timeout=30)** 
 
 ## Privacidad y funcionamiento
 
-1. Usa un perfil local y persistente de Chromium.
+1. Usa un perfil local persistente de Chromium, Chrome o Edge, separado de tu perfil personal cuando hay automatización.
 2. Navega a **https://chatgpt.com/c/ID** y valida que permanece en esa URL.
 3. Interactúa exclusivamente con el campo de composición y los controles de enviar/detener.
 4. No consulta el historial, no lee mensajes ni respuestas, no intercepta tráfico y no utiliza endpoints internos del sitio.
@@ -128,7 +158,7 @@ Para diagnosticarlo sin exponer datos privados:
 4. Actualiza la versión normal de Chromium/Playwright por sus canales oficiales si hay incompatibilidades y revisa ajustes de conexión, filtros o extensiones de seguridad, **sin intentar ocultar que el proceso está automatizado**.
 5. Si el sitio no permite automatizar esa sesión, utiliza la **[API oficial de OpenAI](https://platform.openai.com/docs/)** para un envío programático estable. Esta API **no equivale a escribir en una conversación existente de la web ChatGPT**, por lo que esa alternativa requiere rediseñar el flujo.
 
-Cambiar el `User-Agent`, falsificar huellas del navegador, modificar indicadores de Playwright o automatizar la resolución de CAPTCHAs **no forma parte de este proyecto**. Las esperas actuales de Playwright ya siguen la disponibilidad real del editor y del botón: pausas aleatorias no garantizan evitar verificaciones.
+Falsificar el `User-Agent`, las huellas del navegador, los indicadores de Playwright o automatizar la resolución de CAPTCHAs **no forma parte de este proyecto**. Las esperas actuales de Playwright ya siguen la disponibilidad real del editor y del botón: pausas aleatorias no garantizan evitar verificaciones.
 
 ## Desarrollo
 
