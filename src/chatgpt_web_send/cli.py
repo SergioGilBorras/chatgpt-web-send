@@ -45,7 +45,9 @@ def main(argv: list[str] | None = None) -> int:
                         headless=getattr(args, "headless", False)) as client:
             if args.command == "login":
                 client.open_login()
-                print("Sign in to ChatGPT in the browser. Press Enter here when finished.")
+                print("Sign in to ChatGPT in the browser. Before pressing Enter,")
+                print("confirm the normal chat editor is visible, with no verification challenge.")
+                print("If a CAPTCHA keeps returning, stop; this tool cannot bypass it.")
                 input()
                 print("Browser profile saved locally; do not commit it to Git.")
             else:

@@ -88,3 +88,54 @@ def test_uses_send_button_even_when_initially_disabled():
     client.send("abc-123", "Hola", wait=False)
     button.click.assert_called_once()
     composer.press.assert_not_called()
+
+
+def test_verification_screen_aborts_without_typing_or_sending():
+    from chatgpt_web_send.client import HumanVerificationRequiredError
+
+    client, page, composer, button = browser_client()
+    page.title.return_value = "Just a moment..."
+    with pytest.raises(HumanVerificationRequiredError, match="human verification"):
+        client.send("abc-123", "PRIVATE TEST PROMPT", wait=False)
+    composer.fill.assert_not_called()
+    button.click.assert_not_called()
+    composer.press.assert_not_called()
+
+
+def test_verification_after_editor_wait_is_reported():
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    from chatgpt_web_send.client import HumanVerificationRequiredError
+
+    client, page, composer, button = browser_client()
+    composer.wait_for.side_effect = PlaywrightTimeoutError("composer absent")
+    page.title.side_effect = ["ChatGPT", "Verify you are human"]
+    with pytest.raises(HumanVerificationRequiredError):
+        client.send("abc-123", "PRIVATE TEST PROMPT", wait=False)
+    composer.fill.assert_not_called()
+    button.click.assert_not_called()
+
+
+def test_challenge_path_detected_without_reading_page_content():
+    from chatgpt_web_send.client import HumanVerificationRequiredError
+
+    client, page, composer, button = browser_client()
+    page.url = "https://chatgpt.com/cdn-cgi/challenge-platform/some-id"
+    with pytest.raises(HumanVerificationRequiredError):
+        client.send("abc-123", "PRIVATE TEST PROMPT", wait=False)
+    page.title.assert_not_called()
+    composer.fill.assert_not_called()
+    button.click.assert_not_called()
+
+
+def test_normal_chat_page_is_not_flagged_as_challenge():
+    client, page, _, button = browser_client()
+    page.title.return_value = "ChatGPT"
+    result = client.send("abc-123", "Safe dummy text", wait=False)
+    assert result.submitted is True
+    button.click.assert_called_once()
+
+
+def test_non_string_page_title_is_not_mistaken_for_challenge():
+    client, page, _, _ = browser_client()
+    page.title.return_value = None
+    assert client._requires_human_verification(page) is False

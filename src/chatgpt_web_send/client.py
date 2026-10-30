@@ -74,6 +74,10 @@ class AuthenticationRequiredError(ChatGPTWebError):
     """The browser profile needs to be authenticated interactively."""
 
 
+class HumanVerificationRequiredError(ChatGPTWebError):
+    """ChatGPT requested interactive verification; automation must stop."""
+
+
 class SubmissionError(ChatGPTWebError):
     """The editor could not be used or prompt submission was not confirmed."""
 
@@ -155,6 +159,46 @@ class ChatGPTWeb:
                 self._playwright.stop()
                 self._playwright = None
 
+
+    @staticmethod
+    def _requires_human_verification(page: Page) -> bool:
+        """Detect an obvious verification screen without reading chat content.
+
+        This does NOT solve, evade, retry, or interact with a challenge.
+        The page title and URL path are all that is inspected.
+        """
+        try:
+            path = urlsplit(str(page.url)).path.casefold()
+            if path.startswith(("/cdn-cgi/challenge", "/challenge")):
+                return True
+            title = page.title()
+            return isinstance(title, str) and any(
+                indicator in title.casefold()
+                for indicator in (
+                    "just a moment",
+                    "verify you are human",
+                    "checking your browser",
+                    "human verification",
+                    "verifica que eres humano",
+                    "verificación humana",
+                )
+            )
+        except Exception:
+            # A closed browser or inaccessible document must be diagnosed
+            # by the surrounding normal navigation/error handlers.
+            return False
+
+    @classmethod
+    def _stop_if_verification(cls, page: Page) -> None:
+        if cls._requires_human_verification(page):
+            raise HumanVerificationRequiredError(
+                "ChatGPT is requesting human verification. No prompt was "
+                "submitted by this attempt. Inspect the visible browser and "
+                "complete any verification yourself; if it repeats, stop "
+                "and use the official API for programmatic integrations. "
+                "Changing fingerprints or repeating the challenge is not supported."
+            )
+
     def _page(self) -> Page:
         if self._context is None:
             raise ChatGPTWebError("Use 'with ChatGPTWeb() as client:' first")
@@ -190,11 +234,15 @@ class ChatGPTWeb:
         url = f"{BASE_URL}/c/{conversation_id}"
         page = self._page()
         page.goto(url, wait_until="domcontentloaded", timeout=self.timeout * 1000)
+        self._stop_if_verification(page)
 
         composer = page.locator(_COMPOSER).first
         try:
             composer.wait_for(state="visible", timeout=self.timeout * 1000)
         except PlaywrightTimeoutError as exc:
+            # The verification screen may appear after DOMContentLoaded,
+            # while we were waiting for the composer.
+            self._stop_if_verification(page)
             if "/auth/" in urlsplit(page.url).path or "/login" in urlsplit(page.url).path:
                 raise AuthenticationRequiredError("Sign in first with: chatgpt-web-send login") from exc
             raise SubmissionError(
@@ -209,7 +257,9 @@ class ChatGPTWeb:
             raise SubmissionError("Browser did not remain on the requested conversation URL")
 
         try:
+            self._stop_if_verification(page)
             composer.fill(prompt)
+            self._stop_if_verification(page)
             send_button = page.locator(_SEND_BUTTON).first
             # .click() auto-waits for enablement after filling the editor.
             if send_button.count() and send_button.is_visible():

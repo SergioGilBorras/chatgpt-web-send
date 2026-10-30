@@ -95,6 +95,22 @@ Puedes configurar **ChatGPTWeb(profile_dir="...", headless=False, timeout=30)** 
 
 La conversación debe existir y ser accesible con la cuenta iniciada. Si caduca la sesión, ejecuta de nuevo **login**. Los cambios de UI o medidas antiautomatización pueden impedir su uso. Para una integración oficial y más estable considera la [API de OpenAI](https://platform.openai.com/docs/).
 
+## Verificaciones humanas repetidas (CAPTCHA)
+
+Si ChatGPT muestra reiteradamente una pantalla de **verificación humana**, el sitio puede no estar aceptando esa sesión automatizada. **No significa necesariamente que la contraseña o las cookies sean incorrectas.**
+
+En esta versión el cliente detecta señales claras de una pantalla de verificación mediante **el título o la ruta de la página**, se detiene con un error `HumanVerificationRequiredError` y **no rellena ni envía el prompt**. No lee mensajes ni respuestas ni intenta completar, saltarse o repetir automáticamente el CAPTCHA. Un desafío que no sea reconocible por esos indicadores puede seguir apareciendo como un error genérico de editor.
+
+Para diagnosticarlo sin exponer datos privados:
+
+1. Ejecuta `chatgpt-web-send login` con el navegador visible y confirma manualmente que accedes a ChatGPT y que puedes ver el editor **antes de pulsar Enter**. La sesión se almacena en `~/.chatgpt-web-send/profile` o en `CHATGPT_WEB_SEND_PROFILE_DIR`, no en el navegador habitual.
+2. Comprueba que `login` y `send` usan exactamente el **mismo directorio de perfil y usuario de Windows**. No abras dos procesos simultáneos con ese perfil.
+3. Si el desafío reaparece, no insistas con un bucle de reintentos. Usa `--keep-open` en una prueba con texto ficticio para inspeccionar la pantalla y comprobar que estás en la cuenta correcta.
+4. Actualiza la versión normal de Chromium/Playwright por sus canales oficiales si hay incompatibilidades y revisa ajustes de conexión, filtros o extensiones de seguridad, **sin intentar ocultar que el proceso está automatizado**.
+5. Si el sitio no permite automatizar esa sesión, utiliza la **[API oficial de OpenAI](https://platform.openai.com/docs/)** para un envío programático estable. Esta API **no equivale a escribir en una conversación existente de la web ChatGPT**, por lo que esa alternativa requiere rediseñar el flujo.
+
+Cambiar el `User-Agent`, falsificar huellas del navegador, modificar indicadores de Playwright o automatizar la resolución de CAPTCHAs **no forma parte de este proyecto**. Las esperas actuales de Playwright ya siguen la disponibilidad real del editor y del botón: pausas aleatorias no garantizan evitar verificaciones.
+
 ## Desarrollo
 
     python -m pip install -e '.[dev]'
